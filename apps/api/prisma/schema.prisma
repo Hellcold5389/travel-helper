@@ -10,106 +10,616 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// User model
+// ============================================
+// User & Authentication
+// ============================================
+
 model User {
   id          String   @id @default(cuid())
   email       String   @unique
   name        String?
+  avatar      String?
+  phone       String?
   nationality String?  @db.Char(2)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-  trips       Trip[]
+  
+  // Relations
+  passport    Passport?
   preferences UserPreference?
+  trips       Trip[]
+  notifications Notification[]
+}
+
+model Passport {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  user         User     @relation(fields: [userId], references: [id])
+  
+  // Passport details
+  passportNo   String?
+  fullName     String?
+  dateOfBirth  DateTime?
+  issueDate    DateTime?
+  expiryDate   DateTime?
+  issuingCountry String? @db.Char(2)
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }
 
 model UserPreference {
   id             String   @id @default(cuid())
   userId         String   @unique
   user           User     @relation(fields: [userId], references: [id])
-  language       String   @default("en") @db.Char(2)
-  currency       String   @default("USD") @db.Char(3)
+  
+  // Display preferences
+  language       String   @default("zh") @db.Char(2)
+  currency       String   @default("TWD") @db.Char(3)
+  timezone       String?  @default("Asia/Taipei")
+  
+  // Notification preferences
   visaExpiry     Boolean  @default(true)
   policyChanges  Boolean  @default(true)
   tripReminders  Boolean  @default(true)
+  emailNotif     Boolean  @default(true)
+  pushNotif      Boolean  @default(true)
+  
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 }
 
-// Trip model
+// ============================================
+// Trip Planning
+// ============================================
+
 model Trip {
   id          String   @id @default(cuid())
   userId      String
   user        User     @relation(fields: [userId], references: [id])
+  
+  // Basic info
+  title       String?
   destination String
   countryCode String   @db.Char(2)
+  city        String?
   startDate   DateTime
   endDate     DateTime
+  duration    Int?     // calculated days
+  
+  // Budget
   budget      Float?
-  status      String   @default("planning")
+  currency    String   @default("TWD") @db.Char(3)
+  
+  // Trip details
+  status      TripStatus @default(PLANNING)
+  travelStyle TravelStyle?
+  groupSize   Int       @default(1)
+  
+  // AI-generated itinerary (JSON)
   itinerary   Json?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
+  
+  // Metadata
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  
+  // Relations
+  activities  Activity[]
+  
   @@index([userId])
   @@index([countryCode])
+  @@index([status])
 }
 
-// Visa requirements
+enum TripStatus {
+  PLANNING
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum TravelStyle {
+  RELAX
+  ADVENTURE
+  CULTURE
+  FOOD
+  NATURE
+  SHOPPING
+  BUSINESS
+}
+
+model Activity {
+  id          String   @id @default(cuid())
+  tripId      String
+  trip        Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  
+  // Activity details
+  date        DateTime
+  type        ActivityType
+  name        String
+  description String?  @db.Text
+  
+  // Location
+  placeId     String?  // Google Place ID
+  address     String?
+  lat         Float?
+  lng         Float?
+  
+  // Timing
+  startTime   DateTime?
+  endTime     DateTime?
+  duration    Int?     // minutes
+  
+  // Cost
+  cost        Float?
+  currency    String?  @db.Char(3)
+  
+  // Additional info
+  bookingUrl  String?
+  notes       String?  @db.Text
+  order       Int      @default(0)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([tripId])
+  @@index([date])
+}
+
+enum ActivityType {
+  ATTRACTION
+  RESTAURANT
+  CAFE
+  HOTEL
+  TRANSPORT
+  SHOPPING
+  ACTIVITY
+  OTHER
+}
+
+// ============================================
+// Visa Requirements
+// ============================================
+
 model VisaRequirement {
   id              String   @id @default(cuid())
-  countryCode     String   @db.Char(2)
-  nationalityCode String   @db.Char(2)
-  requirement     String
-  visaType        String?
-  duration        Int?
-  documents       Json?
-  processingTime  String?
+  
+  // Country codes (ISO 3166-1 alpha-2)
+  countryCode     String   @db.Char(2)      // Destination country
+  nationalityCode String   @db.Char(2)      // Traveler's nationality
+  
+  // Visa requirement
+  requirement     VisaType
+  visaType        String?                   // e.g., "Tourist", "Business"
+  
+  // Duration
+  durationDays    Int?                      // Maximum stay in days
+  durationNote    String?  @db.Text         // e.g., "90 days within 180 days"
+  
+  // Requirements
+  documents       Json?                     // Required documents list
+  conditions      Json?                     // Conditions/exceptions
+  
+  // Processing
+  processingTime  String?                   // e.g., "3-5 business days"
+  processingNote  String?  @db.Text
   fee             Float?
+  feeCurrency     String?  @db.Char(3)
+  
+  // Entry requirements
+  passportValidity String?                  // e.g., "6 months"
+  blankPages      Int?
+  
+  // Additional info
   notes           String?  @db.Text
+  officialUrl     String?
   source          String?
-  lastUpdated     DateTime @updatedAt
-
+  
+  // Metadata
+  isActive        Boolean  @default(true)
+  lastVerified    DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
   @@unique([countryCode, nationalityCode])
   @@index([countryCode])
   @@index([nationalityCode])
+  @@index([requirement])
 }
 
-// Legal restrictions
+enum VisaType {
+  VISA_FREE
+  VISA_ON_ARRIVAL
+  E_VISA
+  ETA                // Electronic Travel Authority
+  VISA_REQUIRED
+  VISA_RESTRICTED
+  VISA_SUSPENDED
+}
+
+// ============================================
+// Legal Restrictions & Prohibited Items
+// ============================================
+
 model LegalRestriction {
+  id              String   @id @default(cuid())
+  countryCode     String   @db.Char(2)
+  
+  // Classification
+  category        RestrictionCategory
+  severity        Severity
+  type            RestrictionType
+  
+  // Content
+  title           String
+  description     String   @db.Text
+  
+  // Specific items (for prohibited items)
+  items           Json?                     // List of specific items
+  
+  // Consequences
+  penalty         String?  @db.Text
+  fineMin         Float?
+  fineMax         Float?
+  fineCurrency    String?  @db.Char(3)
+  imprisonment    String?
+  
+  // Exceptions
+  exceptions      String?  @db.Text
+  permitRequired  Boolean  @default(false)
+  permitInfo      String?  @db.Text
+  
+  // Source
+  officialUrl     String?
+  source          String?
+  
+  // Metadata
+  isActive        Boolean  @default(true)
+  lastVerified    DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@index([countryCode])
+  @@index([category])
+  @@index([severity])
+}
+
+enum RestrictionCategory {
+  PROHIBITED_ITEMS    // Items you cannot bring
+  RESTRICTED_ITEMS    // Items with limits/permits
+  MEDICATION          // Prescription/OTC drugs
+  FOOD_PRODUCTS       // Food and agricultural items
+  CURRENCY            // Cash/currency limits
+  BEHAVIOR            // Laws about behavior
+  PHOTOGRAPHY         // Photography restrictions
+  DRESS_CODE          // Dress code requirements
+  CUSTOMS             // Customs regulations
+  OTHER
+}
+
+enum Severity {
+  CRITICAL   // Prison/deportation likely
+  HIGH       // Significant fine/penalty
+  MEDIUM     // Moderate consequences
+  LOW        // Minor issue/warning
+  INFO       // Just be aware
+}
+
+enum RestrictionType {
+  ITEM        // Physical item
+  BEHAVIOR    // Action/behavior
+  DOCUMENT    // Documentation requirement
+  CURRENCY    // Money/valuables
+  OTHER
+}
+
+// ============================================
+// Fun Facts
+// ============================================
+
+model FunFact {
   id          String   @id @default(cuid())
   countryCode String   @db.Char(2)
-  category    String
-  type        String
-  title       String
-  description String   @db.Text
-  penalty     String?  @db.Text
+  
+  // Content
+  category    FunFactCategory
+  title       String?
+  content     String   @db.Text
+  
+  // Media
+  imageUrl    String?
+  
+  // Attribution
   source      String?
-  lastUpdated DateTime @updatedAt
-
+  sourceUrl   String?
+  
+  // Display
+  priority    Int      @default(0)
+  isActive    Boolean  @default(true)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
   @@index([countryCode])
   @@index([category])
 }
 
-// Fun facts
-model FunFact {
-  id          String   @id @default(cuid())
-  countryCode String   @db.Char(2)
-  category    String
-  content     String   @db.Text
-  source      String?
-  isActive    Boolean  @default(true)
-
-  @@index([countryCode])
+enum FunFactCategory {
+  CULTURE
+  HISTORY
+  FOOD
+  NATURE
+  LANGUAGE
+  ETIQUETTE
+  STATISTICS
+  TRIVIA
+  OTHER
 }
 
-// Country info
+// ============================================
+// Country Information
+// ============================================
+
 model Country {
-  code      String   @id @db.Char(2)
-  name      String
-  nameLocal String?
-  capital   String?
-  currency  String?  @db.Char(3)
-  languages String?
-  timezone  String?
-  isActive  Boolean  @default(true)
+  code          String   @id @db.Char(2)
+  
+  // Names
+  name          String
+  nameLocal     String?
+  nameZh        String?  // Chinese name
+  nameZhHant    String?  // Traditional Chinese
+  
+  // Basic info
+  capital       String?
+  region        String?  // Asia, Europe, etc.
+  subregion     String?
+  
+  // Codes
+  iso3          String?  @db.Char(3)
+  phoneCode     String?
+  currency      String?  @db.Char(3)
+  currencyName  String?
+  
+  // Language & Culture
+  languages     Json?    // Array of languages
+  mainLanguage  String?
+  
+  // Geography
+  timezone      String?
+  area          Float?   // km²
+  population    Int?
+  
+  // Travel info
+  visaFreeFor   Json?    // Countries that can visit visa-free
+  
+  // Display
+  flagEmoji     String?
+  imageUrl      String?
+  isActive      Boolean  @default(true)
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// ============================================
+// Destinations & Attractions (for trip planning)
+// ============================================
+
+model Destination {
+  id              String   @id @default(cuid())
+  countryCode     String   @db.Char(2)
+  
+  // Basic info
+  name            String
+  nameZh          String?
+  type            DestinationType
+  
+  // Location
+  city            String?
+  region          String?
+  lat             Float?
+  lng             Float?
+  
+  // Description
+  description     String?  @db.Text
+  descriptionZh   String?  @db.Text
+  
+  // Practical info
+  bestTimeToVisit String?
+  avgCostPerDay   Float?
+  currency        String?  @db.Char(3)
+  
+  // Categories
+  categories      Json?    // Array of categories
+  
+  // Media
+  imageUrl        String?
+  images          Json?    // Array of image URLs
+  
+  // Ratings
+  rating          Float?
+  reviewCount     Int      @default(0)
+  
+  // Popularity
+  popularity      Int      @default(0)
+  
+  // Status
+  isActive        Boolean  @default(true)
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@index([countryCode])
+  @@index([type])
+  @@index([isActive])
+}
+
+enum DestinationType {
+  CITY
+  REGION
+  ATTRACTION
+  NATURE
+  BEACH
+  MOUNTAIN
+  ISLAND
+  OTHER
+}
+
+model Attraction {
+  id              String   @id @default(cuid())
+  destinationId   String?
+  countryCode     String   @db.Char(2)
+  
+  // Basic info
+  name            String
+  nameZh          String?
+  type            AttractionType
+  
+  // Location
+  city            String?
+  address         String?
+  lat             Float?
+  lng             Float?
+  placeId         String?  // Google Place ID
+  
+  // Description
+  description     String?  @db.Text
+  descriptionZh   String?  @db.Text
+  
+  // Practical info
+  openingHours    Json?
+  admission       Float?
+  currency        String?  @db.Char(3)
+  duration        Int?     // Recommended visit time in minutes
+  bestTimeToVisit String?
+  
+  // Tags & categories
+  categories      Json?
+  tags            Json?
+  
+  // Media
+  imageUrl        String?
+  images          Json?
+  
+  // Ratings
+  rating          Float?
+  reviewCount     Int      @default(0)
+  
+  // Popularity
+  popularity      Int      @default(0)
+  
+  // Status
+  isActive        Boolean  @default(true)
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@index([countryCode])
+  @@index([type])
+  @@index([isActive])
+}
+
+enum AttractionType {
+  LANDMARK
+  MUSEUM
+  TEMPLE
+  PARK
+  BEACH
+  MOUNTAIN
+  MARKET
+  MALL
+  RESTAURANT
+  CAFE
+  BAR
+  HOTEL
+  ACTIVITY
+  OTHER
+}
+
+// ============================================
+// Notifications
+// ============================================
+
+model Notification {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  
+  // Content
+  type        NotificationType
+  title       String
+  message     String   @db.Text
+  
+  // Related data
+  relatedId   String?
+  relatedType String?  // "trip", "visa", "policy"
+  
+  // Status
+  isRead      Boolean  @default(false)
+  readAt      DateTime?
+  
+  // Delivery
+  sentVia     String?  // "email", "push", "in-app"
+  sentAt      DateTime?
+  
+  createdAt   DateTime @default(now())
+  
+  @@index([userId])
+  @@index([type])
+  @@index([isRead])
+}
+
+enum NotificationType {
+  VISA_EXPIRY
+  PASSPORT_EXPIRY
+  POLICY_CHANGE
+  TRIP_REMINDER
+  PRICE_ALERT
+  SYSTEM
+}
+
+// ============================================
+// System & Logging
+// ============================================
+
+model ApiLog {
+  id          String   @id @default(cuid())
+  
+  endpoint    String
+  method      String
+  statusCode  Int
+  
+  userId      String?
+  ip          String?
+  userAgent   String?
+  
+  request     Json?
+  response    Json?
+  
+  duration    Int      // milliseconds
+  
+  createdAt   DateTime @default(now())
+  
+  @@index([endpoint])
+  @@index([createdAt])
+}
+
+model DataUpdateLog {
+  id          String   @id @default(cuid())
+  
+  table       String
+  operation   String   // "create", "update", "delete"
+  recordId    String
+  
+  oldData     Json?
+  newData     Json?
+  
+  updatedBy   String?  // User ID or "system"
+  
+  createdAt   DateTime @default(now())
+  
+  @@index([table])
+  @@index([createdAt])
 }
