@@ -45,13 +45,14 @@ apps/mobile/android/.gradle/
 apps/mobile/ios/build/
 apps/mobile/ios/Pods/
 
-# OpenClaw workspace files (keep for agent)
-!.openclaw/
-!memory/
-!AGENTS.md
-!SOUL.md
-!TOOLS.md
-!IDENTITY.md
-!USER.md
-!PROJECT_STATUS.md
-!HEARTBEAT.md
+# OpenClaw workspace files (DO NOT COMMIT)
+.openclaw/
+memory/
+AGENTS.md
+SOUL.md
+TOOLS.md
+IDENTITY.md
+USER.md
+PROJECT_STATUS.md
+HEARTBEAT.md
+BOOTSTRAP.md
