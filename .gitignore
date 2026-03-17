@@ -1,0 +1,57 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Testing
+coverage/
+
+# Expo
+apps/mobile/.expo/
+apps/mobile/*.jks
+apps/mobile/*.p8
+apps/mobile/*.p12
+apps/mobile/*.key
+apps/mobile/*.mobileprovision
+apps/mobile/*.orig.*
+
+# Native builds
+apps/mobile/android/app/build/
+apps/mobile/android/.gradle/
+apps/mobile/ios/build/
+apps/mobile/ios/Pods/
+
+# OpenClaw workspace files (keep for agent)
+!.openclaw/
+!memory/
+!AGENTS.md
+!SOUL.md
+!TOOLS.md
+!IDENTITY.md
+!USER.md
+!PROJECT_STATUS.md
+!HEARTBEAT.md

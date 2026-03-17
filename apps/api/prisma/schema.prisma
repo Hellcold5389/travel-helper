@@ -1,0 +1,115 @@
+// This is the Prisma schema file
+// Learn more: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User model
+model User {
+  id          String   @id @default(cuid())
+  email       String   @unique
+  name        String?
+  nationality String?  @db.Char(2)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  trips       Trip[]
+  preferences UserPreference?
+}
+
+model UserPreference {
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  user           User     @relation(fields: [userId], references: [id])
+  language       String   @default("en") @db.Char(2)
+  currency       String   @default("USD") @db.Char(3)
+  visaExpiry     Boolean  @default(true)
+  policyChanges  Boolean  @default(true)
+  tripReminders  Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+// Trip model
+model Trip {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  destination String
+  countryCode String   @db.Char(2)
+  startDate   DateTime
+  endDate     DateTime
+  budget      Float?
+  status      String   @default("planning")
+  itinerary   Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([countryCode])
+}
+
+// Visa requirements
+model VisaRequirement {
+  id              String   @id @default(cuid())
+  countryCode     String   @db.Char(2)
+  nationalityCode String   @db.Char(2)
+  requirement     String
+  visaType        String?
+  duration        Int?
+  documents       Json?
+  processingTime  String?
+  fee             Float?
+  notes           String?  @db.Text
+  source          String?
+  lastUpdated     DateTime @updatedAt
+
+  @@unique([countryCode, nationalityCode])
+  @@index([countryCode])
+  @@index([nationalityCode])
+}
+
+// Legal restrictions
+model LegalRestriction {
+  id          String   @id @default(cuid())
+  countryCode String   @db.Char(2)
+  category    String
+  type        String
+  title       String
+  description String   @db.Text
+  penalty     String?  @db.Text
+  source      String?
+  lastUpdated DateTime @updatedAt
+
+  @@index([countryCode])
+  @@index([category])
+}
+
+// Fun facts
+model FunFact {
+  id          String   @id @default(cuid())
+  countryCode String   @db.Char(2)
+  category    String
+  content     String   @db.Text
+  source      String?
+  isActive    Boolean  @default(true)
+
+  @@index([countryCode])
+}
+
+// Country info
+model Country {
+  code      String   @id @db.Char(2)
+  name      String
+  nameLocal String?
+  capital   String?
+  currency  String?  @db.Char(3)
+  languages String?
+  timezone  String?
+  isActive  Boolean  @default(true)
+}
