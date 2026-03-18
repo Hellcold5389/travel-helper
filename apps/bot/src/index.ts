@@ -111,20 +111,19 @@ const countryFlags: Record<string, string> = {
 // Start command
 bot.command('start', async (ctx) => {
   await ctx.reply(
-    `🌍 *Travel Helper Bot*
+    `🌍 Travel Helper Bot
 
 你的 AI 旅行顧問！提供簽證查詢、法律禁忌、Fun Facts。
 
-*可用命令：*
-/visa \\<國家代碼\\> \\- 查詢簽證資訊
-/legal \\<國家代碼\\> \\- 查詢法律禁忌
-/funfacts \\<國家代碼\\> \\- 趣味知識
-/countries \\- 支援國家列表
+📍 可用命令：
+/visa <國家代碼> - 查詢簽證資訊
+/legal <國家代碼> - 查詢法律禁忌
+/funfacts <國家代碼> - 趣味知識
+/countries - 支援國家列表
 
-*範例：*
-\`/visa JP\` \\- 查詢日本簽證
-\`/legal TH\` \\- 查詢泰國禁忌`,
-    { parse_mode: 'MarkdownV2' }
+💡 範例：
+/visa JP - 查詢日本簽證
+/legal TH - 查詢泰國禁忌`
   );
 });
 
@@ -135,8 +134,11 @@ bot.command('countries', async (ctx) => {
     .join('\n');
   
   await ctx.reply(
-    `📍 *支援的國家：*\n\n${countries}\n\n使用國家代碼查詢（如 JP, KR, TH, SG, US）`,
-    { parse_mode: 'MarkdownV2' }
+    `📍 支援的國家：
+
+${countries}
+
+使用國家代碼查詢（如 JP, KR, TH, SG, US）`
   );
 });
 
@@ -145,7 +147,7 @@ bot.command('visa', async (ctx) => {
   const countryCode = ctx.match?.toUpperCase();
   
   if (!countryCode) {
-    await ctx.reply('請輸入國家代碼，例如：`/visa JP`', { parse_mode: 'MarkdownV2' });
+    await ctx.reply('請輸入國家代碼，例如：/visa JP');
     return;
   }
   
@@ -160,14 +162,13 @@ bot.command('visa', async (ctx) => {
   const requirementEmoji = visa.requirement === '免簽證' ? '✅' : '📝';
   
   await ctx.reply(
-    `${flag} *${countryCode} 簽證資訊*（台灣護照）
+    `${flag} ${countryCode} 簽證資訊（台灣護照）
 
-${requirementEmoji} *${visa.requirement}*
+${requirementEmoji} ${visa.requirement}
 ⏱ 停留期限：${visa.duration}
 📌 注意事項：${visa.notes}
 
-_⚠️ 簽證政策可能隨時變更，出發前請確認官方資訊_`,
-    { parse_mode: 'MarkdownV2' }
+⚠️ 簽證政策可能隨時變更，出發前請確認官方資訊`
   );
 });
 
@@ -176,7 +177,7 @@ bot.command('legal', async (ctx) => {
   const countryCode = ctx.match?.toUpperCase();
   
   if (!countryCode) {
-    await ctx.reply('請輸入國家代碼，例如：`/legal JP`', { parse_mode: 'MarkdownV2' });
+    await ctx.reply('請輸入國家代碼，例如：/legal JP');
     return;
   }
   
@@ -189,16 +190,15 @@ bot.command('legal', async (ctx) => {
   }
   
   const itemsList = legal.items
-    .map((item) => `• ${item.severity} *${item.name}*\n  ${item.notes}`)
+    .map((item) => `• ${item.severity} ${item.name}\n  ${item.notes}`)
     .join('\n\n');
   
   await ctx.reply(
-    `${flag} *${legal.country} - 禁帶物品與法律禁忌*
+    `${flag} ${legal.country} - 禁帶物品與法律禁忌
 
 ${itemsList}
 
-_⚠️ 違反規定可能面臨罰款、監禁等處罰_`,
-    { parse_mode: 'MarkdownV2' }
+⚠️ 違反規定可能面臨罰款、監禁等處罰`
   );
 });
 
@@ -207,7 +207,7 @@ bot.command('funfacts', async (ctx) => {
   const countryCode = ctx.match?.toUpperCase();
   
   if (!countryCode) {
-    await ctx.reply('請輸入國家代碼，例如：`/funfacts JP`', { parse_mode: 'MarkdownV2' });
+    await ctx.reply('請輸入國家代碼，例如：/funfacts JP');
     return;
   }
   
@@ -222,35 +222,33 @@ bot.command('funfacts', async (ctx) => {
   const factsList = facts.map((fact, i) => `${i + 1}. ${fact}`).join('\n');
   
   await ctx.reply(
-    `${flag} *Fun Facts*
+    `${flag} Fun Facts
 
-${factsList}`,
-    { parse_mode: 'MarkdownV2' }
+${factsList}`
   );
 });
 
 // Help command
 bot.command('help', async (ctx) => {
   await ctx.reply(
-    `📖 *Travel Helper Bot 使用說明*
+    `📖 Travel Helper Bot 使用說明
 
-*命令列表：*
-/start \\- 開始使用
-/visa \\<國家\\> \\- 簽證查詢
-/legal \\<國家\\> \\- 法律禁忌
-/funfacts \\<國家\\> \\- 趣味知識
-/countries \\- 支援國家
-/help \\- 幫助
+📍 命令列表：
+/start - 開始使用
+/visa <國家> - 簽證查詢
+/legal <國家> - 法律禁忌
+/funfacts <國家> - 趣味知識
+/countries - 支援國家
+/help - 幫助
 
-*國家代碼：*
-JP \\- 日本 🇯🇵
-KR \\- 韓國 🇰🇷
-TH \\- 泰國 🇹🇭
-SG \\- 新加坡 🇸🇬
-US \\- 美國 🇺🇸
+🌐 國家代碼：
+JP - 日本 🇯🇵
+KR - 韓國 🇰🇷
+TH - 泰國 🇹🇭
+SG - 新加坡 🇸🇬
+US - 美國 🇺🇸
 
-_資料僅供參考，實際規定以各國官方公告為準_`,
-    { parse_mode: 'MarkdownV2' }
+⚠️ 資料僅供參考，實際規定以各國官方公告為準`
   );
 });
 
