@@ -6,10 +6,12 @@
   "scripts": {
     "mobile": "pnpm --filter @travel-helper/mobile",
     "api": "pnpm --filter @travel-helper/api",
+    "bot": "pnpm --filter @travel-helper/bot",
     "shared": "pnpm --filter @travel-helper/shared",
     "dev": "concurrently \"pnpm dev:api\" \"pnpm dev:mobile\"",
     "dev:api": "pnpm --filter @travel-helper/api dev",
     "dev:mobile": "pnpm --filter @travel-helper/mobile start",
+    "dev:bot": "pnpm --filter @travel-helper/bot dev",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",
@@ -21,7 +23,8 @@
     "travel",
     "ai",
     "visa",
-    "trip-planning"
+    "trip-planning",
+    "telegram-bot"
   ],
   "author": "Hugo",
   "license": "MIT",
