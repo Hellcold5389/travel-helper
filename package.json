@@ -5,11 +5,13 @@
   "description": "AI-powered travel assistant with legal information, visa requirements, and trip planning",
   "scripts": {
     "mobile": "pnpm --filter @travel-helper/mobile",
+    "web": "pnpm --filter @travel-helper/web",
     "api": "pnpm --filter @travel-helper/api",
     "bot": "pnpm --filter @travel-helper/bot",
     "shared": "pnpm --filter @travel-helper/shared",
-    "dev": "concurrently \"pnpm dev:api\" \"pnpm dev:mobile\"",
+    "dev": "concurrently \"pnpm dev:api\" \"pnpm dev:web\"",
     "dev:api": "pnpm --filter @travel-helper/api dev",
+    "dev:web": "pnpm --filter @travel-helper/web dev",
     "dev:mobile": "pnpm --filter @travel-helper/mobile start",
     "dev:bot": "pnpm --filter @travel-helper/bot dev",
     "build": "pnpm -r build",
@@ -17,6 +19,8 @@
     "test": "pnpm -r test",
     "db:generate": "pnpm --filter @travel-helper/api db:generate",
     "db:push": "pnpm --filter @travel-helper/api db:push",
+    "db:migrate": "pnpm --filter @travel-helper/api db:migrate",
+    "db:seed": "pnpm --filter @travel-helper/api db:seed",
     "db:studio": "pnpm --filter @travel-helper/api db:studio"
   },
   "keywords": [

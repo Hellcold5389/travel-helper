@@ -75,8 +75,8 @@ model UserPreference {
 
 model Trip {
   id          String   @id @default(cuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id])
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id])
   
   // Basic info
   title       String?
@@ -89,15 +89,22 @@ model Trip {
   
   // Budget
   budget      Float?
+  budgetLevel String?  // LOW, MEDIUM, HIGH
   currency    String   @default("TWD") @db.Char(3)
   
   // Trip details
   status      TripStatus @default(PLANNING)
   travelStyle TravelStyle?
+  travelStyles Json?    // Array of styles
   groupSize   Int       @default(1)
   
   // AI-generated itinerary (JSON)
   itinerary   Json?
+  itineraryText String? @db.Text
+  
+  // Sharing
+  shareId     String?  @unique  // Unique share code
+  isPublic    Boolean  @default(false)
   
   // Metadata
   createdAt   DateTime  @default(now())
@@ -284,6 +291,7 @@ model LegalRestriction {
   @@index([countryCode])
   @@index([category])
   @@index([severity])
+  @@unique([countryCode, title])
 }
 
 enum RestrictionCategory {
@@ -344,6 +352,7 @@ model FunFact {
   
   @@index([countryCode])
   @@index([category])
+  @@unique([countryCode, title])
 }
 
 enum FunFactCategory {
@@ -578,6 +587,173 @@ enum NotificationType {
   TRIP_REMINDER
   PRICE_ALERT
   SYSTEM
+}
+
+// ============================================
+// Trip Draft (Phase 2 - Conversational Planning)
+// ============================================
+
+model TripDraft {
+  id              String   @id @default(cuid())
+  
+  // 用戶識別
+  telegramUserId  String   @unique
+  
+  // 對話狀態
+  step            DraftStep @default(NATIONALITY)
+  
+  // 累積資料
+  nationality     String?  @db.Char(2)   // 用戶護照國籍 (TW, HK, US, etc.)
+  destination     String?
+  countryCode     String?  @db.Char(2)   // 目的地國家
+  city            String?
+  days            Int?
+  budget          BudgetLevel?
+  travelStyles    Json?
+  specialRequests String?  @db.Text
+  
+  // 完成後關聯
+  tripId          String?
+  
+  // 超時機制
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  expiresAt       DateTime
+  
+  @@index([telegramUserId])
+  @@index([expiresAt])
+}
+
+enum DraftStep {
+  NATIONALITY    // 第一步：問護照國籍
+  DESTINATION    // 第二步：問目的地
+  DAYS
+  BUDGET
+  STYLE
+  GENERATING
+  COMPLETED
+}
+
+enum BudgetLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+// ============================================
+// Policy Changes (Phase 2)
+// ============================================
+
+model PolicyChange {
+  id            String   @id @default(cuid())
+  countryCode   String   @db.Char(2)
+  type          String   // VISA | LEGAL | CUSTOMS
+  title         String
+  description   String   @db.Text
+  effectiveDate DateTime
+  source        String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  @@index([countryCode])
+  @@index([type])
+  @@index([effectiveDate])
+}
+
+// ============================================
+// Flight Tracking
+// ============================================
+
+model TrackedFlight {
+  id              String   @id @default(cuid())
+  userId          String
+  
+  // Flight identification
+  airline         String   @db.Char(2)   // IATA airline code (CI, BR, JL, etc.)
+  flightNumber    String                 // Full flight number (CI123)
+  flightDate      DateTime              // Departure date
+  
+  // Route
+  departureAirport String  @db.Char(3)  // IATA airport code (TPE, NRT)
+  arrivalAirport   String  @db.Char(3)
+  
+  // Status (from AviationStack)
+  status          FlightStatus @default(SCHEDULED)
+  departureTime   DateTime?
+  arrivalTime     DateTime?
+  departureGate   String?
+  arrivalGate     String?
+  departureTerminal String?
+  arrivalTerminal String?
+  delayMinutes    Int?
+  
+  // Last sync
+  lastSynced      DateTime?
+  rawData         Json?
+  
+  // Notifications
+  notifyDelay     Boolean  @default(true)
+  notifyGate      Boolean  @default(true)
+  notifyDeparture Boolean  @default(true)
+  notifyArrival   Boolean  @default(true)
+  
+  // Relations
+  alerts          FlightAlert[]
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@unique([userId, airline, flightNumber, flightDate])
+  @@index([userId])
+  @@index([flightDate])
+  @@index([status])
+}
+
+enum FlightStatus {
+  SCHEDULED     // On schedule
+  ACTIVE        // In flight
+  LANDED        // Arrived
+  CANCELLED     // Cancelled
+  INCIDENT      // Emergency/diverted
+  DIVERTED      // Diverted to another airport
+  REDIRECTED    // Changed route
+  UNKNOWN       // No data
+  DELAYED       // Delayed (custom status)
+}
+
+model FlightAlert {
+  id              String   @id @default(cuid())
+  trackedFlightId String
+  trackedFlight   TrackedFlight @relation(fields: [trackedFlightId], references: [id], onDelete: Cascade)
+  
+  // Alert details
+  type            FlightAlertType
+  message         String   @db.Text
+  oldData         Json?
+  newData         Json?
+  
+  // Status
+  isRead          Boolean  @default(false)
+  readAt          DateTime?
+  
+  // Notification
+  sentVia         String?  // "telegram", "email", "push"
+  sentAt          DateTime?
+  
+  createdAt       DateTime @default(now())
+  
+  @@index([trackedFlightId])
+  @@index([isRead])
+}
+
+enum FlightAlertType {
+  DELAY
+  GATE_CHANGE
+  TERMINAL_CHANGE
+  CANCELLATION
+  DEPARTURE
+  ARRIVAL
+  DIVERSION
 }
 
 // ============================================
