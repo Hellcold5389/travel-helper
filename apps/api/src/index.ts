@@ -2828,6 +2828,462 @@ app.get('/api/flights/track/:flightId', async (req, res) => {
 });
 
 // ============================================
+// Packing List API (Phase 5)
+// ============================================
+
+interface PackingListRequest {
+  destination: string;
+  countryCode: string;
+  days: number;
+  season: 'spring' | 'summer' | 'autumn' | 'winter';
+  tripType: ('leisure' | 'business' | 'adventure' | 'shopping')[];
+  specialNeeds?: string[];
+}
+
+// Packing items database by category
+const PACKING_ITEMS: Record<string, { item: string; essential: boolean; conditions?: string[] }[]> = {
+  essentials: [
+    { item: '護照', essential: true },
+    { item: '機票/電子簽證', essential: true },
+    { item: '信用卡', essential: true },
+    { item: '現金（當地貨幣）', essential: true },
+    { item: '手機充電器', essential: true },
+    { item: '轉接頭', essential: false },
+    { item: '行程表/訂房確認信', essential: true },
+    { item: '旅遊保險', essential: true },
+    { item: '緊急聯絡人資訊', essential: true },
+  ],
+  clothing: [
+    { item: '內衣褲', essential: true },
+    { item: '襪子', essential: true },
+    { item: 'T恤/上衣', essential: true },
+    { item: '長褲/短褲', essential: true },
+    { item: '外套', essential: false },
+    { item: '睡衣', essential: false },
+    { item: '泳衣', essential: false, conditions: ['summer', 'leisure'] },
+    { item: '帽子', essential: false },
+    { item: '太陽眼鏡', essential: false },
+    { item: '雨衣/雨傘', essential: false },
+  ],
+  toiletries: [
+    { item: '牙刷/牙膏', essential: true },
+    { item: '洗髮精/沐浴乳（旅行裝）', essential: false },
+    { item: '護膚乳液', essential: false },
+    { item: '防曬乳', essential: false, conditions: ['summer'] },
+    { item: '化妝品', essential: false },
+    { item: '刮鬍刀', essential: false },
+    { item: '衛生紙/濕紙巾', essential: true },
+    { item: '棉花棒', essential: false },
+  ],
+  electronics: [
+    { item: '手機', essential: true },
+    { item: '相機', essential: false },
+    { item: '行動電源', essential: true },
+    { item: '耳機', essential: false },
+    { item: '自拍棒/腳架', essential: false },
+  ],
+  medicine: [
+    { item: '個人處方藥', essential: true },
+    { item: '止痛藥', essential: false },
+    { item: '腸胃藥', essential: false },
+    { item: '感冒藥', essential: false },
+    { item: 'OK繃', essential: false },
+    { item: '防蚊液', essential: false },
+    { item: '暈車藥', essential: false },
+  ],
+  documents: [
+    { item: '護照影本', essential: false },
+    { item: '駕照（國際駕照）', essential: false, conditions: ['adventure'] },
+    { item: '疫苗接種證明', essential: false },
+    { item: '飯店訂房確認信', essential: true },
+  ],
+  business: [
+    { item: '筆記型電腦', essential: true, conditions: ['business'] },
+    { item: '名片', essential: true, conditions: ['business'] },
+    { item: '正式服裝', essential: true, conditions: ['business'] },
+    { item: '簡報檔案（USB）', essential: false, conditions: ['business'] },
+  ],
+  adventure: [
+    { item: '登山鞋', essential: true, conditions: ['adventure'] },
+    { item: '背包', essential: true, conditions: ['adventure'] },
+    { item: '頭燈/手電筒', essential: false, conditions: ['adventure'] },
+    { item: '水瓶', essential: true, conditions: ['adventure'] },
+    { item: '急救包', essential: true, conditions: ['adventure'] },
+  ],
+};
+
+app.post('/api/packing-list', async (req, res) => {
+  try {
+    const { destination, countryCode, days, season, tripType, specialNeeds } = req.body as PackingListRequest;
+
+    if (!destination || !days) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: destination, days',
+      });
+    }
+
+    // Build packing list based on conditions
+    const packingList: Record<string, { item: string; checked: boolean; essential: boolean }[]> = {};
+    const conditions = [...tripType, season];
+
+    for (const [category, items] of Object.entries(PACKING_ITEMS)) {
+      const categoryItems = items
+        .filter(item => {
+          if (!item.conditions) return true;
+          return item.conditions.some(c => conditions.includes(c));
+        })
+        .map(item => ({
+          item: item.item,
+          checked: false,
+          essential: item.essential,
+        }));
+
+      if (categoryItems.length > 0) {
+        packingList[category] = categoryItems;
+      }
+    }
+
+    // Add special needs items
+    if (specialNeeds && specialNeeds.length > 0) {
+      packingList['special'] = specialNeeds.map(item => ({
+        item,
+        checked: false,
+        essential: true,
+      }));
+    }
+
+    res.json({
+      success: true,
+      data: {
+        destination,
+        days,
+        season,
+        tripType,
+        packingList,
+        totalItems: Object.values(packingList).flat().length,
+        essentialItems: Object.values(packingList).flat().filter(i => i.essential).length,
+      },
+    });
+  } catch (error) {
+    console.error('Error generating packing list:', error);
+    res.status(500).json({ success: false, error: 'Failed to generate packing list' });
+  }
+});
+
+// ============================================
+// Budget Calculator API (Phase 5)
+// ============================================
+
+interface BudgetRequest {
+  destination: string;
+  countryCode: string;
+  days: number;
+  travelers: number;
+  budgetLevel: 'low' | 'medium' | 'high';
+  includeFlights?: boolean;
+  flightOrigin?: string;
+}
+
+// Cost data by country (per person per day)
+const COST_DATA: Record<string, { low: number; medium: number; high: number; currency: string }> = {
+  JP: { low: 3000, medium: 6000, high: 12000, currency: 'TWD' },
+  KR: { low: 2500, medium: 5000, high: 10000, currency: 'TWD' },
+  TH: { low: 1500, medium: 3000, high: 6000, currency: 'TWD' },
+  SG: { low: 3500, medium: 7000, high: 15000, currency: 'TWD' },
+  MY: { low: 1500, medium: 3000, high: 6000, currency: 'TWD' },
+  VN: { low: 1200, medium: 2500, high: 5000, currency: 'TWD' },
+  HK: { low: 3000, medium: 6000, high: 12000, currency: 'TWD' },
+  MO: { low: 2500, medium: 5000, high: 10000, currency: 'TWD' },
+  TW: { low: 1500, medium: 3000, high: 6000, currency: 'TWD' },
+  US: { low: 4000, medium: 8000, high: 20000, currency: 'TWD' },
+  GB: { low: 4000, medium: 8000, high: 18000, currency: 'TWD' },
+  FR: { low: 3500, medium: 7000, high: 15000, currency: 'TWD' },
+  AU: { low: 3500, medium: 7000, high: 15000, currency: 'TWD' },
+};
+
+// Flight cost estimates (round trip from TPE)
+const FLIGHT_COSTS: Record<string, { low: number; medium: number; high: number }> = {
+  JP: { low: 8000, medium: 15000, high: 30000 },
+  KR: { low: 6000, medium: 12000, high: 25000 },
+  TH: { low: 5000, medium: 10000, high: 20000 },
+  SG: { low: 5000, medium: 10000, high: 20000 },
+  MY: { low: 5000, medium: 10000, high: 20000 },
+  VN: { low: 4000, medium: 8000, high: 18000 },
+  HK: { low: 4000, medium: 8000, high: 18000 },
+  MO: { low: 5000, medium: 10000, high: 22000 },
+  US: { low: 25000, medium: 45000, high: 100000 },
+  GB: { low: 20000, medium: 40000, high: 90000 },
+  FR: { low: 20000, medium: 35000, high: 80000 },
+  AU: { low: 15000, medium: 30000, high: 70000 },
+};
+
+app.post('/api/budget', async (req, res) => {
+  try {
+    const { destination, countryCode, days, travelers, budgetLevel, includeFlights, flightOrigin } = req.body as BudgetRequest;
+
+    if (!countryCode || !days || !travelers || !budgetLevel) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: countryCode, days, travelers, budgetLevel',
+      });
+    }
+
+    const countryCosts = COST_DATA[countryCode] || COST_DATA['JP']; // Default to Japan
+    const dailyCost = countryCosts[budgetLevel];
+
+    // Calculate breakdown
+    const accommodation = Math.round(dailyCost * 0.35 * days);
+    const food = Math.round(dailyCost * 0.25 * days);
+    const transport = Math.round(dailyCost * 0.15 * days);
+    const activities = Math.round(dailyCost * 0.15 * days);
+    const shopping = Math.round(dailyCost * 0.10 * days);
+    
+    let flightCost = 0;
+    if (includeFlights) {
+      const flightCosts = FLIGHT_COSTS[countryCode] || FLIGHT_COSTS['JP'];
+      flightCost = flightCosts[budgetLevel];
+    }
+
+    const totalPerPerson = accommodation + food + transport + activities + shopping + flightCost;
+    const grandTotal = totalPerPerson * travelers;
+
+    res.json({
+      success: true,
+      data: {
+        destination,
+        countryCode,
+        days,
+        travelers,
+        budgetLevel,
+        currency: 'TWD',
+        breakdown: {
+          accommodation: {
+            label: '住宿',
+            amount: accommodation,
+            percentage: 35,
+          },
+          food: {
+            label: '餐飲',
+            amount: food,
+            percentage: 25,
+          },
+          transport: {
+            label: '交通',
+            amount: transport,
+            percentage: 15,
+          },
+          activities: {
+            label: '活動/門票',
+            amount: activities,
+            percentage: 15,
+          },
+          shopping: {
+            label: '購物/紀念品',
+            amount: shopping,
+            percentage: 10,
+          },
+          flight: {
+            label: '機票（來回）',
+            amount: flightCost,
+            percentage: flightCost > 0 ? 0 : 0,
+          },
+        },
+        totalPerPerson,
+        grandTotal,
+        tips: [
+          `建議預留 ${Math.round(grandTotal * 0.1)} 元（10%）作為緊急備用金`,
+          budgetLevel === 'low' ? '選擇青年旅館或民宿可節省住宿費用' : '',
+          budgetLevel === 'low' ? '利用大眾運輸工具，購買交通券更划算' : '',
+          budgetLevel === 'medium' ? '建議提前預訂熱門景點門票' : '',
+          budgetLevel === 'high' ? '可考慮包車或私人導遊服務' : '',
+        ].filter(Boolean),
+      },
+    });
+  } catch (error) {
+    console.error('Error calculating budget:', error);
+    res.status(500).json({ success: false, error: 'Failed to calculate budget' });
+  }
+});
+
+// ============================================
+// Weather API (Phase 5)
+// ============================================
+
+app.get('/api/weather/:countryCode', async (req, res) => {
+  try {
+    const { countryCode } = req.params;
+    const { city, days = '7' } = req.query;
+
+    // Get country info for coordinates
+    const country = await prisma.country.findUnique({
+      where: { code: countryCode.toUpperCase() },
+    });
+
+    if (!country) {
+      return res.status(404).json({
+        success: false,
+        error: 'Country not found',
+      });
+    }
+
+    // Use capital city coordinates as default
+    const cityCoords: Record<string, { lat: number; lon: number; name: string }> = {
+      JP: { lat: 35.6762, lon: 139.6503, name: '東京' },
+      KR: { lat: 37.5665, lon: 126.9780, name: '首爾' },
+      TH: { lat: 13.7563, lon: 100.5018, name: '曼谷' },
+      SG: { lat: 1.3521, lon: 103.8198, name: '新加坡' },
+      MY: { lat: 3.1390, lon: 101.6869, name: '吉隆坡' },
+      VN: { lat: 21.0285, lon: 105.8542, name: '河內' },
+      HK: { lat: 22.3193, lon: 114.1694, name: '香港' },
+      MO: { lat: 22.1987, lon: 113.5439, name: '澳門' },
+      TW: { lat: 25.0330, lon: 121.5654, name: '台北' },
+      US: { lat: 40.7128, lon: -74.0060, name: '紐約' },
+      GB: { lat: 51.5074, lon: -0.1278, name: '倫敦' },
+      FR: { lat: 48.8566, lon: 2.3522, name: '巴黎' },
+      AU: { lat: -33.8688, lon: 151.2093, name: '雪梨' },
+    };
+
+    const coords = cityCoords[countryCode.toUpperCase()] || cityCoords['JP'];
+    const forecastDays = Math.min(parseInt(days as string, 10), 16);
+
+    // Fetch from Open-Meteo API (free, no API key required)
+    const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode,uv_index_max,windspeed_10m_max&timezone=auto&forecast_days=${forecastDays}`;
+    
+    const weatherResponse = await fetch(weatherUrl);
+    
+    if (!weatherResponse.ok) {
+      throw new Error('Weather API request failed');
+    }
+
+    const weatherData = await weatherResponse.json() as {
+      daily: {
+        time: string[];
+        temperature_2m_max: number[];
+        temperature_2m_min: number[];
+        precipitation_probability_max: number[];
+        weathercode: number[];
+        uv_index_max: number[];
+        windspeed_10m_max: number[];
+      };
+      timezone: string;
+    };
+
+    // Weather code to description mapping
+    const weatherCodeMap: Record<number, { description: string; icon: string }> = {
+      0: { description: '晴天', icon: '☀️' },
+      1: { description: '晴時多雲', icon: '🌤️' },
+      2: { description: '多雲', icon: '⛅' },
+      3: { description: '陰天', icon: '☁️' },
+      45: { description: '霧', icon: '🌫️' },
+      48: { description: '霧凇', icon: '🌫️' },
+      51: { description: '小雨', icon: '🌦️' },
+      53: { description: '中雨', icon: '🌧️' },
+      55: { description: '大雨', icon: '🌧️' },
+      61: { description: '小雨', icon: '🌦️' },
+      63: { description: '中雨', icon: '🌧️' },
+      65: { description: '大雨', icon: '🌧️' },
+      71: { description: '小雪', icon: '🌨️' },
+      73: { description: '中雪', icon: '❄️' },
+      75: { description: '大雪', icon: '❄️' },
+      80: { description: '陣雨', icon: '🌦️' },
+      81: { description: '中陣雨', icon: '🌧️' },
+      82: { description: '大陣雨', icon: '⛈️' },
+      95: { description: '雷雨', icon: '⛈️' },
+      96: { description: '雷雨冰雹', icon: '⛈️' },
+      99: { description: '強雷雨冰雹', icon: '⛈️' },
+    };
+
+    const forecast = weatherData.daily.time.map((date, index) => {
+      const code = weatherData.daily.weathercode[index];
+      const weather = weatherCodeMap[code] || { description: '未知', icon: '❓' };
+      
+      return {
+        date,
+        dayOfWeek: new Date(date).toLocaleDateString('zh-TW', { weekday: 'short' }),
+        maxTemp: weatherData.daily.temperature_2m_max[index],
+        minTemp: weatherData.daily.temperature_2m_min[index],
+        precipitation: weatherData.daily.precipitation_probability_max[index],
+        weatherCode: code,
+        description: weather.description,
+        icon: weather.icon,
+        uvIndex: weatherData.daily.uv_index_max[index],
+        windSpeed: weatherData.daily.windspeed_10m_max[index],
+      };
+    });
+
+    // Get current weather
+    const currentUrl = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}&current=temperature_2m,relative_humidity_2m,weathercode,windspeed_10m&timezone=auto`;
+    const currentResponse = await fetch(currentUrl);
+    const currentData = await currentResponse.json() as {
+      current: {
+        temperature_2m: number;
+        relative_humidity_2m: number;
+        weathercode: number;
+        windspeed_10m: number;
+      };
+    };
+
+    const currentWeather = currentData.current;
+    const currentCode = currentWeather.weathercode;
+    const currentWeatherInfo = weatherCodeMap[currentCode] || { description: '未知', icon: '❓' };
+
+    res.json({
+      success: true,
+      data: {
+        location: {
+          country: country.nameZh || country.name,
+          city: coords.name,
+          countryCode: countryCode.toUpperCase(),
+        },
+        current: {
+          temperature: currentWeather.temperature_2m,
+          humidity: currentWeather.relative_humidity_2m,
+          weatherCode: currentCode,
+          description: currentWeatherInfo.description,
+          icon: currentWeatherInfo.icon,
+          windSpeed: currentWeather.windspeed_10m,
+        },
+        forecast,
+        timezone: weatherData.timezone,
+        tips: generateWeatherTips(forecast, countryCode.toUpperCase()),
+      },
+    });
+  } catch (error) {
+    console.error('Error fetching weather:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch weather data' });
+  }
+});
+
+function generateWeatherTips(forecast: { date: string; maxTemp: number; minTemp: number; precipitation: number; description: string }[], countryCode: string): string[] {
+  const tips: string[] = [];
+  
+  // Check for rain
+  const rainyDays = forecast.filter(d => d.precipitation > 50).length;
+  if (rainyDays > 3) {
+    tips.push('☔ 這週有較多雨天，建議攜帶雨具');
+  }
+
+  // Check temperature range
+  const avgTemp = forecast.reduce((sum, d) => sum + d.maxTemp, 0) / forecast.length;
+  if (avgTemp > 30) {
+    tips.push('🌡️ 氣溫較高，注意防曬和補充水分');
+  } else if (avgTemp < 10) {
+    tips.push('🧥 氣溫較低，建議攜帶保暖衣物');
+  }
+
+  // Country-specific tips
+  if (countryCode === 'TH' || countryCode === 'VN' || countryCode === 'SG') {
+    tips.push('東南亞地區建議穿著透氣衣物');
+  }
+  if (countryCode === 'JP' || countryCode === 'KR') {
+    tips.push('日韓地區早晚溫差大，建議帶薄外套');
+  }
+
+  return tips;
+}
+
+// ============================================
 // Error handling
 // ============================================
 

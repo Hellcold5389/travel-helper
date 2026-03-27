@@ -7,7 +7,9 @@ import { Card, SectionHeader } from '../src/components/ui';
 // Quick actions for home screen
 const QUICK_ACTIONS = [
   { icon: '✈️', title: 'AI 行程規劃', subtitle: '讓 AI 幫你規劃完美旅程', href: '/trip' as const },
-  { icon: '🗺️', title: '行程地圖', subtitle: '在地圖上查看行程', href: '/trip-map' as const },
+  { icon: '🎒', title: '打包清單', subtitle: '智能生成打包清單', href: '/packing' as const },
+  { icon: '💰', title: '預算試算', subtitle: '估算旅行費用', href: '/budget' as const },
+  { icon: '🌤️', title: '天氣查詢', subtitle: '查看目的地天氣', href: '/weather' as const },
   { icon: '📋', title: '簽證查詢', subtitle: '快速查詢簽證需求', href: '/visa' as const },
   { icon: '⚖️', title: '法律禁忌', subtitle: '了解當地法律禁忌', href: '/legal' as const },
   { icon: '🎭', title: '趣聞探索', subtitle: '發現當地有趣知識', href: '/funfacts' as const },

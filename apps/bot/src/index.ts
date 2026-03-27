@@ -2166,6 +2166,252 @@ bot.on('message:text', async (ctx, next) => {
   return next();
 });
 
+// ============================================
+// Packing List Command
+// ============================================
+
+bot.command('packing', async (ctx) => {
+  const args = ctx.message?.text?.split(' ').slice(1) || [];
+  
+  if (args.length < 2) {
+    await ctx.reply(
+      `🎒 打包清單生成器
+
+使用方式：
+/packing <國家> <天數> [季節] [類型]
+
+範例：
+/packing JP 5
+/packing JP 5 winter leisure
+/packing TH 3 summer adventure
+
+季節：spring, summer, autumn, winter
+類型：leisure, business, adventure, shopping`,
+      { parse_mode: 'Markdown' }
+    );
+    return;
+  }
+
+  const countryCode = args[0].toUpperCase();
+  const days = parseInt(args[1], 10);
+  const season = (args[2] || 'summer') as 'spring' | 'summer' | 'autumn' | 'winter';
+  const tripType = args[3] ? [args[3] as 'leisure' | 'business' | 'adventure' | 'shopping'] : ['leisure'];
+
+  if (isNaN(days) || days < 1 || days > 30) {
+    await ctx.reply('❌ 天數必須是 1-30 之間的數字');
+    return;
+  }
+
+  try {
+    const response = await fetch(`${API_URL}/api/packing-list`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        destination: countryCode,
+        countryCode,
+        days,
+        season,
+        tripType,
+      }),
+    });
+
+    const data = await response.json() as { success: boolean; data?: { packingList: Record<string, { item: string; checked: boolean; essential: boolean }[]>; totalItems: number; essentialItems: number }; error?: string };
+
+    if (!data.success) {
+      await ctx.reply(`❌ 生成失敗：${data.error}`);
+      return;
+    }
+
+    const packingList = data.data!.packingList;
+    let message = `🎒 **打包清單** (${days}天)\n\n`;
+
+    for (const [category, items] of Object.entries(packingList)) {
+      const categoryName: Record<string, string> = {
+        essentials: '📋 必備物品',
+        clothing: '👕 衣物',
+        toiletries: '🧴 盥洗用品',
+        electronics: '📱 電子產品',
+        medicine: '💊 藥品',
+        documents: '📄 文件',
+        business: '💼 商務用品',
+        adventure: '🏔️ 冒險裝備',
+        special: '⭐ 特殊需求',
+      };
+
+      message += `**${categoryName[category] || category}**\n`;
+      for (const item of items) {
+        const checkbox = item.essential ? '🔴' : '⚪';
+        message += `${checkbox} ${item.item}\n`;
+      }
+      message += '\n';
+    }
+
+    message += `📊 總計 ${data.data!.totalItems} 項（必備 ${data.data!.essentialItems} 項）\n`;
+    message += `\n💡 點擊項目可複製到筆記`;
+
+    await ctx.reply(message, { parse_mode: 'Markdown' });
+  } catch (err) {
+    console.error('Error generating packing list:', err);
+    await ctx.reply('❌ 生成打包清單時發生錯誤');
+  }
+});
+
+// ============================================
+// Budget Calculator Command
+// ============================================
+
+bot.command('budget', async (ctx) => {
+  const args = ctx.message?.text?.split(' ').slice(1) || [];
+  
+  if (args.length < 3) {
+    await ctx.reply(
+      `💰 預算試算器
+
+使用方式：
+/budget <國家> <天數> <人數> [等級] [含機票]
+
+範例：
+/budget JP 5 2
+/budget JP 5 2 medium
+/budget JP 5 2 high yes
+
+等級：low（省錢）、medium（一般）、high（豪華）`,
+      { parse_mode: 'Markdown' }
+    );
+    return;
+  }
+
+  const countryCode = args[0].toUpperCase();
+  const days = parseInt(args[1], 10);
+  const travelers = parseInt(args[2], 10);
+  const budgetLevel = (args[3] || 'medium') as 'low' | 'medium' | 'high';
+  const includeFlights = args[4] === 'yes';
+
+  if (isNaN(days) || days < 1 || days > 90) {
+    await ctx.reply('❌ 天數必須是 1-90 之間的數字');
+    return;
+  }
+
+  if (isNaN(travelers) || travelers < 1 || travelers > 20) {
+    await ctx.reply('❌ 人數必須是 1-20 之間的數字');
+    return;
+  }
+
+  try {
+    const response = await fetch(`${API_URL}/api/budget`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        destination: countryCode,
+        countryCode,
+        days,
+        travelers,
+        budgetLevel,
+        includeFlights,
+      }),
+    });
+
+    const data = await response.json() as { success: boolean; data?: { breakdown: Record<string, { label: string; amount: number }>; totalPerPerson: number; grandTotal: number; tips: string[]; currency: string }; error?: string };
+
+    if (!data.success) {
+      await ctx.reply(`❌ 計算失敗：${data.error}`);
+      return;
+    }
+
+    const result = data.data!;
+    let message = `💰 **預算試算結果**\n\n`;
+    message += `📍 目的地：${countryCode}\n`;
+    message += `📅 天數：${days} 天\n`;
+    message += `👥 人數：${travelers} 人\n`;
+    message += `💎 等級：${budgetLevel === 'low' ? '省錢' : budgetLevel === 'medium' ? '一般' : '豪華'}\n\n`;
+
+    message += `📊 **費用明細（每人）**\n`;
+    for (const [key, item] of Object.entries(result.breakdown)) {
+      if (item.amount > 0) {
+        message += `${item.label}：NT$ ${item.amount.toLocaleString()}\n`;
+      }
+    }
+
+    message += `\n💵 **每人總計**：NT$ ${result.totalPerPerson.toLocaleString()}\n`;
+    message += `🏦 **總預算**：NT$ ${result.grandTotal.toLocaleString()}\n\n`;
+
+    if (result.tips.length > 0) {
+      message += `💡 **小撇步**\n`;
+      for (const tip of result.tips) {
+        message += `• ${tip}\n`;
+      }
+    }
+
+    await ctx.reply(message, { parse_mode: 'Markdown' });
+  } catch (err) {
+    console.error('Error calculating budget:', err);
+    await ctx.reply('❌ 計算預算時發生錯誤');
+  }
+});
+
+// ============================================
+// Weather Command
+// ============================================
+
+bot.command('weather', async (ctx) => {
+  const args = ctx.message?.text?.split(' ').slice(1) || [];
+  
+  if (args.length === 0) {
+    await ctx.reply(
+      `🌤️ 天氣查詢
+
+使用方式：
+/weather <國家>
+
+範例：
+/weather JP
+/weather KR
+
+顯示 7 天天氣預報`,
+      { parse_mode: 'Markdown' }
+    );
+    return;
+  }
+
+  const countryCode = args[0].toUpperCase();
+
+  try {
+    const response = await fetch(`${API_URL}/api/weather/${countryCode}?days=7`);
+    const data = await response.json() as { success: boolean; data?: { location: { country: string; city: string }; current: { temperature: number; description: string; icon: string; humidity: number }; forecast: { date: string; dayOfWeek: string; maxTemp: number; minTemp: number; icon: string; description: string; precipitation: number }[]; tips: string[] }; error?: string };
+
+    if (!data.success) {
+      await ctx.reply(`❌ 查詢失敗：${data.error}`);
+      return;
+    }
+
+    const result = data.data!;
+    let message = `🌤️ **${result.location.city}，${result.location.country}**\n\n`;
+
+    message += `📍 **目前天氣**\n`;
+    message += `${result.current.icon} ${result.current.description}\n`;
+    message += `🌡️ ${result.current.temperature}°C\n`;
+    message += `💧 濕度 ${result.current.humidity}%\n\n`;
+
+    message += `📅 **7 天預報**\n`;
+    for (const day of result.forecast) {
+      const rainIcon = day.precipitation > 50 ? '☔' : '';
+      message += `${day.dayOfWeek} ${day.icon} ${day.minTemp}°-${day.maxTemp}°C ${rainIcon}\n`;
+    }
+
+    if (result.tips.length > 0) {
+      message += `\n💡 **建議**\n`;
+      for (const tip of result.tips) {
+        message += `${tip}\n`;
+      }
+    }
+
+    await ctx.reply(message, { parse_mode: 'Markdown' });
+  } catch (err) {
+    console.error('Error fetching weather:', err);
+    await ctx.reply('❌ 查詢天氣時發生錯誤');
+  }
+});
+
 // Help command
 bot.command('help', async (ctx) => {
   await ctx.reply(
@@ -2178,6 +2424,9 @@ bot.command('help', async (ctx) => {
   - /flight search - 搜尋航班
   - /flight list - 查看追蹤列表
   - /flight <航班號> - 查看航班詳情
+/packing - 🎒 打包清單生成器
+/budget - 💰 預算試算器
+/weather - 🌤️ 天氣查詢
 /visa <國家> - 簽證查詢
 /legal <國家> - 法律禁忌
 /funfacts <國家> - 趣味知識
@@ -2198,6 +2447,15 @@ bot.command('help', async (ctx) => {
 輸入 /plan 開始對話式行程規劃
 AI 會根據你的目的地、天數、預算、風格
 生成專屬行程建議
+
+🎒 打包清單：
+/packing JP 5 - 生成日本5天打包清單
+
+💰 預算試算：
+/budget JP 5 2 - 計算日本5天2人預算
+
+🌤️ 天氣查詢：
+/weather JP - 查看日本天氣預報
 
 ✈️ 航班追蹤功能：
 輸入 /flight search 搜尋航班
