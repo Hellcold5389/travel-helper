@@ -232,3 +232,30 @@ export interface FlightAlert {
   isRead: boolean;
   createdAt: string;
 }
+
+// ============================================
+// Map Types
+// ============================================
+
+export interface MapPlace {
+  id: string;
+  name: string;
+  address?: string;
+  lat: number;
+  lng: number;
+  type?: string;
+  day?: number;
+  time?: string;
+  rating?: number;
+  imageUrl?: string;
+}
+
+export interface TripWithPlaces {
+  id: string;
+  title: string | null;
+  destination: string;
+  countryCode: string;
+  startDate: string;
+  endDate: string;
+  places: MapPlace[];
+}
