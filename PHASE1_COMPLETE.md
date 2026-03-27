@@ -150,12 +150,12 @@ curl http://localhost:3001/api/funfacts/JP
 ```env
 PORT=3001
 NODE_ENV=development
-DATABASE_URL="postgresql://hugo:db5389@localhost:5432/travel_helper"
+DATABASE_URL="postgresql://user:password@localhost:5432/travel_helper"
 ```
 
 ### Bot (.env)
 ```env
-TELEGRAM_BOT_TOKEN=8629765835:AAG6DI_idw6y-rOSLgIP1I-6d4jSNBjuHeQ
+TELEGRAM_BOT_TOKEN=your_bot_token_here
 API_URL=http://localhost:3001
 ```
 
