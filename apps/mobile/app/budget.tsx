@@ -11,6 +11,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useMutation } from '@tanstack/react-query';
+import { Svg, Circle, Path, G } from 'react-native-svg';
 import { api } from '../src/api/client';
 import { colors } from '../src/constants/colors';
 
@@ -32,6 +33,7 @@ interface BudgetResponse {
     travelers: number;
     budgetLevel: string;
     currency: string;
+    currencySymbol: string;
     breakdown: BudgetBreakdown;
     totalPerPerson: number;
     grandTotal: number;
@@ -56,6 +58,12 @@ const BUDGET_LEVELS = [
   { value: 'high', label: '豪華', icon: '💎', desc: '精品酒店、私人導遊' },
 ];
 
+const CURRENCIES = [
+  { value: 'TWD', label: '台幣', symbol: 'NT$', flag: '🇹🇼' },
+  { value: 'HKD', label: '港幣', symbol: 'HK$', flag: '🇭🇰' },
+  { value: 'USD', label: '美金', symbol: 'US$', flag: '🇺🇸' },
+];
+
 const CATEGORY_COLORS: Record<string, string> = {
   accommodation: '#3B82F6',
   food: '#F59E0B',
@@ -65,6 +73,48 @@ const CATEGORY_COLORS: Record<string, string> = {
   flight: '#6366F1',
 };
 
+const PieChart = ({ data, size = 120 }: { data: { key: string; value: number; color: string }[]; size?: number }) => {
+  const total = data.reduce((sum, item) => sum + item.value, 0);
+  const radius = size / 2 - 10;
+  const centerX = size / 2;
+  const centerY = size / 2;
+
+  let currentAngle = -90;
+
+  const paths = data.map((item) => {
+    const percentage = item.value / total;
+    const angle = percentage * 360;
+    const startAngle = currentAngle;
+    const endAngle = currentAngle + angle;
+    currentAngle = endAngle;
+
+    const startRad = (startAngle * Math.PI) / 180;
+    const endRad = (endAngle * Math.PI) / 180;
+
+    const x1 = centerX + radius * Math.cos(startRad);
+    const y1 = centerY + radius * Math.sin(startRad);
+    const x2 = centerX + radius * Math.cos(endRad);
+    const y2 = centerY + radius * Math.sin(endRad);
+
+    const largeArcFlag = angle > 180 ? 1 : 0;
+
+    const pathD = `M ${centerX} ${centerY} L ${x1} ${y1} A ${radius} ${radius} 0 ${largeArcFlag} 1 ${x2} ${y2} Z`;
+
+    return { path: pathD, color: item.color, key: item.key, percentage: Math.round(percentage * 100) };
+  });
+
+  return (
+    <Svg width={size} height={size}>
+      <G>
+        {paths.map((p, i) => (
+          <Path key={i} d={p.path} fill={p.color} />
+        ))}
+        <Circle cx={centerX} cy={centerY} r={radius * 0.4} fill={colors.card} />
+      </G>
+    </Svg>
+  );
+};
+
 export default function BudgetScreen() {
   const router = useRouter();
   const [step, setStep] = useState<'country' | 'details' | 'level' | 'result'>('country');
@@ -72,6 +122,7 @@ export default function BudgetScreen() {
   const [days, setDays] = useState('5');
   const [travelers, setTravelers] = useState('2');
   const [budgetLevel, setBudgetLevel] = useState('medium');
+  const [currency, setCurrency] = useState('TWD');
   const [includeFlights, setIncludeFlights] = useState(true);
   const [result, setResult] = useState<BudgetResponse['data'] | null>(null);
 
@@ -83,6 +134,7 @@ export default function BudgetScreen() {
         days: parseInt(days, 10),
         travelers: parseInt(travelers, 10),
         budgetLevel,
+        currency,
         includeFlights,
       });
       return response.data;
@@ -155,6 +207,24 @@ export default function BudgetScreen() {
       </View>
 
       <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>顯示貨幣</Text>
+        <View style={styles.row}>
+          {CURRENCIES.map((c) => (
+            <TouchableOpacity
+              key={c.value}
+              style={[styles.currencyButton, currency === c.value && styles.currencyButtonActive]}
+              onPress={() => setCurrency(c.value)}
+            >
+              <Text style={styles.currencyFlag}>{c.flag}</Text>
+              <Text style={[styles.currencyLabel, currency === c.value && styles.currencyLabelActive]}>
+                {c.symbol}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+
+      <View style={styles.inputGroup}>
         <TouchableOpacity
           style={styles.switchRow}
           onPress={() => setIncludeFlights(!includeFlights)}
@@ -206,10 +276,6 @@ export default function BudgetScreen() {
   const renderResult = () => {
     if (!result) return null;
 
-    const maxAmount = Math.max(
-      ...Object.values(result.breakdown).map((b) => b.amount)
-    );
-
     return (
       <View style={styles.resultContainer}>
         <ScrollView>
@@ -223,10 +289,10 @@ export default function BudgetScreen() {
           <View style={styles.totalCard}>
             <Text style={styles.totalLabel}>總預算</Text>
             <Text style={styles.totalAmount}>
-              NT$ {result.grandTotal.toLocaleString()}
+              {result.currencySymbol} {result.grandTotal.toLocaleString()}
             </Text>
             <Text style={styles.perPerson}>
-              每人 NT$ {result.totalPerPerson.toLocaleString()}
+              每人 {result.currencySymbol} {result.totalPerPerson.toLocaleString()}
             </Text>
           </View>
 
@@ -246,7 +312,7 @@ export default function BudgetScreen() {
                     <Text style={styles.breakdownLabel}>{value.label}</Text>
                   </View>
                   <Text style={styles.breakdownAmount}>
-                    NT$ {value.amount.toLocaleString()}
+                    {result.currencySymbol} {value.amount.toLocaleString()}
                   </Text>
                 </View>
               ))}
@@ -254,20 +320,30 @@ export default function BudgetScreen() {
 
           <View style={styles.chartSection}>
             <Text style={styles.chartTitle}>費用比例</Text>
-            <View style={styles.barChart}>
+            <View style={styles.pieChartContainer}>
+              <PieChart
+                data={Object.entries(result.breakdown)
+                  .filter(([_, value]) => value.amount > 0)
+                  .map(([key, value]) => ({
+                    key,
+                    value: value.amount,
+                    color: CATEGORY_COLORS[key] || colors.primary,
+                  }))
+                }
+                size={140}
+              />
+            </View>
+            <View style={styles.legendContainer}>
               {Object.entries(result.breakdown)
                 .filter(([_, value]) => value.amount > 0)
                 .map(([key, value]) => (
-                  <View
-                    key={key}
-                    style={[
-                      styles.bar,
-                      {
-                        width: `${(value.amount / maxAmount) * 100}%`,
-                        backgroundColor: CATEGORY_COLORS[key] || colors.primary,
-                      },
-                    ]}
-                  />
+                  <View key={key} style={styles.legendItem}>
+                    <View style={[styles.legendDot, { backgroundColor: CATEGORY_COLORS[key] || colors.primary }]} />
+                    <Text style={styles.legendLabel}>{value.label}</Text>
+                    <Text style={styles.legendPercentage}>
+                      {Math.round((value.amount / (result.totalPerPerson || 1)) * 100)}%
+                    </Text>
+                  </View>
                 ))}
             </View>
           </View>
@@ -409,6 +485,32 @@ const styles = StyleSheet.create({
   },
   dayTextActive: {
     color: 'white',
+  },
+  currencyButton: {
+    width: 70,
+    paddingVertical: 12,
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  currencyButtonActive: {
+    borderColor: colors.primary,
+    backgroundColor: `${colors.primary}15`,
+  },
+  currencyFlag: {
+    fontSize: 20,
+    marginBottom: 4,
+  },
+  currencyLabel: {
+    fontSize: 14,
+    color: colors.text,
+    fontWeight: '500',
+  },
+  currencyLabelActive: {
+    color: colors.primary,
+    fontWeight: '600',
   },
   switchRow: {
     flexDirection: 'row',
@@ -580,13 +682,39 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.text,
     marginBottom: 16,
+    textAlign: 'center',
   },
-  barChart: {
-    gap: 8,
+  pieChartContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
   },
-  bar: {
-    height: 24,
-    borderRadius: 4,
+  legendContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+  },
+  legendDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: 6,
+  },
+  legendLabel: {
+    fontSize: 12,
+    color: colors.text,
+  },
+  legendPercentage: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    marginLeft: 4,
   },
   tipsSection: {
     margin: 16,
