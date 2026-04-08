@@ -1,41 +1,14 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import NetInfo from '@react-native-community/netinfo';
+import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import * as SecureStore from 'expo-secure-store';
+import * as Network from 'expo-network';
+import * as AppleAuthentication from 'expo-apple-authentication';
+import * as AuthSession from 'expo-auth-session';
+import * as WebBrowser from 'expo-web-browser';
 import { Platform } from 'react-native';
+import { Storage } from '../utils/storage';
 import { apiClient } from '../api/client';
 
-// Google Sign-In - only on native platforms
-let GoogleSignin: any = null;
-let statusCodes: any = null;
-if (Platform.OS !== 'web') {
-  try {
-    const googleSigninModule = require('@react-native-google-signin/google-signin');
-    GoogleSignin = googleSigninModule.GoogleSignin;
-    statusCodes = googleSigninModule.statusCodes;
-    GoogleSignin.configure({
-      webClientId: 'YOUR_WEB_CLIENT_ID',
-      offlineAccess: false,
-    });
-  } catch (e) {
-    console.log('Google Sign-In not available on this platform');
-  }
-}
-
-// Apple Authentication - only on iOS
-let appleAuth: any = null;
-let AppleAuthRequestScope: any = null;
-let AppleAuthRequestOperation: any = null;
-if (Platform.OS === 'ios') {
-  try {
-    const appleAuthModule = require('@invertase/react-native-apple-authentication');
-    appleAuth = appleAuthModule.default;
-    AppleAuthRequestScope = appleAuthModule.AppleAuthRequestScope;
-    AppleAuthRequestOperation = appleAuthModule.AppleAuthRequestOperation;
-  } catch (e) {
-    console.log('Apple Authentication not available');
-  }
-}
+WebBrowser.maybeCompleteAuthSession();
 
 // ============================================
 // Types
@@ -50,6 +23,9 @@ interface User {
     language: string;
     currency: string;
     timezone?: string;
+    visaExpiry?: boolean;
+    policyChanges?: boolean;
+    tripReminders?: boolean;
   };
 }
 
@@ -85,12 +61,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [isOffline, setIsOffline] = useState(false);
 
-  // Check offline status
+  // Check network status (polling every 10s)
   useEffect(() => {
-    const unsubscribe = NetInfo.addEventListener(state => {
-      setIsOffline(!state.isConnected);
-    });
-    return () => unsubscribe();
+    let mounted = true;
+
+    const checkNetwork = async () => {
+      try {
+        const state = await Network.getNetworkStateAsync();
+        if (mounted) setIsOffline(!(state.isConnected ?? true));
+      } catch {
+        // assume online if check fails
+      }
+    };
+
+    checkNetwork();
+    const interval = setInterval(checkNetwork, 10000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
   }, []);
 
   // Load stored auth on mount
@@ -101,19 +90,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const loadStoredAuth = async () => {
     try {
       const storedToken = await SecureStore.getItemAsync(TOKEN_KEY);
-      const storedUser = await AsyncStorage.getItem(USER_KEY);
+      const storedUser = await Storage.getItem(USER_KEY);
 
       if (storedToken && storedUser) {
         setToken(storedToken);
         setUser(JSON.parse(storedUser));
-        
+
         // Verify token is still valid
         try {
           const profile = await apiClient.getProfile(storedToken);
           setUser(profile.user);
-          await AsyncStorage.setItem(USER_KEY, JSON.stringify(profile.user));
-        } catch (error) {
-          await refreshToken();
+          await Storage.setItem(USER_KEY, JSON.stringify(profile.user));
+        } catch {
+          await doRefreshToken(storedToken);
         }
       }
     } catch (error) {
@@ -121,6 +110,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const storeAuth = async (newToken: string, newUser: User) => {
+    await SecureStore.setItemAsync(TOKEN_KEY, newToken);
+    await Storage.setItem(USER_KEY, JSON.stringify(newUser));
+    setToken(newToken);
+    setUser(newUser);
   };
 
   const login = async (email: string, password: string) => {
@@ -133,89 +129,71 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await storeAuth(response.token, response.user);
   };
 
+  // Google Sign-In via expo-auth-session (Expo Go compatible)
   const loginWithGoogle = async () => {
-    if (Platform.OS === 'web' || !GoogleSignin) {
-      throw new Error('Google 登錄僅支持手機端');
-    }
+    const redirectUri = AuthSession.makeRedirectUri();
 
-    try {
-      await GoogleSignin.hasPlayServices();
-      const userInfo = await GoogleSignin.signIn();
-      const { idToken } = await GoogleSignin.getTokens();
-      
-      if (!idToken) {
-        throw new Error('No ID token received');
-      }
-      
-      const response = await apiClient.googleAuth(idToken);
+    const request = new AuthSession.AuthRequest({
+      clientId: 'YOUR_GOOGLE_WEB_CLIENT_ID',
+      scopes: ['openid', 'profile', 'email'],
+      redirectUri,
+      responseType: AuthSession.ResponseType.Token,
+    });
+
+    const result = await request.promptAsync({
+      authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
+    });
+
+    if (result.type === 'success') {
+      const { access_token } = result.params;
+      const response = await apiClient.googleAuth(access_token);
       await storeAuth(response.token, response.user);
-    } catch (error: any) {
-      console.error('Google sign in error:', error);
-      
-      if (error.code === statusCodes?.SIGN_IN_CANCELLED) {
-        throw new Error('用戶取消登錄');
-      } else if (error.code === statusCodes?.IN_PROGRESS) {
-        throw new Error('登錄進行中');
-      } else if (error.code === statusCodes?.PLAY_SERVICES_NOT_AVAILABLE) {
-        throw new Error('Google Play Services 不可用');
-      } else {
-        throw error;
-      }
+    } else if (result.type === 'cancel' || result.type === 'dismiss') {
+      throw new Error('用戶取消登錄');
+    } else {
+      throw new Error('Google 登錄失敗');
     }
   };
 
+  // Apple Sign-In via expo-apple-authentication (Expo Go compatible on iOS)
   const loginWithApple = async () => {
-    if (Platform.OS !== 'ios' || !appleAuth) {
+    if (Platform.OS !== 'ios') {
       throw new Error('Apple 登錄僅支持 iOS');
     }
 
-    try {
-      const isAvailable = await appleAuth.isSupported();
-      if (!isAvailable) {
-        throw new Error('Apple 登錄不可用');
-      }
-      
-      const appleAuthRequestResponse = await appleAuth.performRequest({
-        requestedOperation: AppleAuthRequestOperation.LOGIN,
-        requestedScopes: [
-          AppleAuthRequestScope.EMAIL,
-          AppleAuthRequestScope.FULL_NAME,
-        ],
-      });
-      
-      const { identityToken, email, fullName } = appleAuthRequestResponse;
-      
-      if (!identityToken) {
-        throw new Error('No identity token received');
-      }
-      
-      const response = await apiClient.appleAuth(identityToken, {
-        email,
-        name: fullName ? {
-          firstName: fullName.givenName,
-          lastName: fullName.familyName,
-        } : undefined,
-      });
-      
-      await storeAuth(response.token, response.user);
-    } catch (error: any) {
-      console.error('Apple sign in error:', error);
-      throw error;
+    const isAvailable = await AppleAuthentication.isAvailableAsync();
+    if (!isAvailable) {
+      throw new Error('Apple 登錄不可用（需要 iOS 13+）');
     }
+
+    const credential = await AppleAuthentication.signInAsync({
+      requestedScopes: [
+        AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+        AppleAuthentication.AppleAuthenticationScope.EMAIL,
+      ],
+    });
+
+    if (!credential.identityToken) {
+      throw new Error('No identity token received');
+    }
+
+    const response = await apiClient.appleAuth(credential.identityToken, {
+      email: credential.email,
+      name: credential.fullName
+        ? {
+            firstName: credential.fullName.givenName,
+            lastName: credential.fullName.familyName,
+          }
+        : undefined,
+    });
+
+    await storeAuth(response.token, response.user);
   };
 
   const logout = async () => {
     try {
-      if (GoogleSignin) {
-        try {
-          await GoogleSignin.signOut();
-        } catch (e) {
-          // Ignore
-        }
-      }
-      
       await SecureStore.deleteItemAsync(TOKEN_KEY);
-      await AsyncStorage.removeItem(USER_KEY);
+      await Storage.removeItem(USER_KEY);
       setToken(null);
       setUser(null);
     } catch (error) {
@@ -225,31 +203,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const updateProfile = async (data: Partial<User>) => {
     if (!token) return;
-    
+
     const response = await apiClient.updateSettings(token, data);
-    const updatedUser = { ...user, ...data, preferences: response.preferences };
+    const updatedUser = { ...user, ...data, preferences: response.preferences } as User;
     setUser(updatedUser);
-    await AsyncStorage.setItem(USER_KEY, JSON.stringify(updatedUser));
+    await Storage.setItem(USER_KEY, JSON.stringify(updatedUser));
   };
 
-  const refreshToken = async () => {
-    if (!token) return;
-    
+  const doRefreshToken = async (currentToken: string) => {
     try {
-      const response = await apiClient.refreshToken(token);
+      const response = await apiClient.refreshToken(currentToken);
       await SecureStore.setItemAsync(TOKEN_KEY, response.token);
       setToken(response.token);
-    } catch (error) {
+    } catch {
       await logout();
     }
   };
 
-  const storeAuth = async (newToken: string, newUser: User) => {
-    await SecureStore.setItemAsync(TOKEN_KEY, newToken);
-    await AsyncStorage.setItem(USER_KEY, JSON.stringify(newUser));
-    setToken(newToken);
-    setUser(newUser);
-  };
+  const refreshToken = useCallback(async () => {
+    if (!token) return;
+    await doRefreshToken(token);
+  }, [token]);
 
   return (
     <AuthContext.Provider

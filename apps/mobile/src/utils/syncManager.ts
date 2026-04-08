@@ -1,5 +1,5 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import NetInfo, { NetInfoState } from '@react-native-community/netinfo';
+import * as Network from 'expo-network';
+import * as SecureStore from 'expo-secure-store';
 import { offlineStorage } from './offlineStorage';
 import { apiClient } from '../api/client';
 
@@ -34,30 +34,28 @@ class SyncManager {
   private async init() {
     // Load pending sync queue
     this.syncQueue = await offlineStorage.getSyncQueue();
-    
-    // Listen for network changes
-    NetInfo.addEventListener(this.handleNetworkChange);
-    
-    // Check initial network state
-    const state = await NetInfo.fetch();
-    this.isOnline = state.isConnected ?? false;
-    
-    // If online, start sync
-    if (this.isOnline && this.syncQueue.length > 0) {
-      this.sync();
-    }
+
+    // Check initial network state and poll for changes
+    await this.checkAndUpdateNetwork();
+    setInterval(() => this.checkAndUpdateNetwork(), 10000);
   }
 
-  private handleNetworkChange = (state: NetInfoState) => {
-    const wasOffline = !this.isOnline;
-    this.isOnline = state.isConnected ?? false;
-    
-    // Just came back online
-    if (wasOffline && this.isOnline) {
-      console.log('[Sync] Back online, starting sync...');
-      this.sync();
+  private async checkAndUpdateNetwork() {
+    try {
+      const state = await Network.getNetworkStateAsync();
+      const nowOnline = state.isConnected ?? false;
+      const wasOffline = !this.isOnline;
+      this.isOnline = nowOnline;
+
+      // Just came back online
+      if (wasOffline && nowOnline && this.syncQueue.length > 0) {
+        console.log('[Sync] Back online, starting sync...');
+        this.sync();
+      }
+    } catch {
+      // ignore
     }
-  };
+  }
 
   // ============================================
   // Public API
@@ -172,8 +170,7 @@ class SyncManager {
   }
 
   private async processTripOperation(op: SyncOperation): Promise<void> {
-    // Requires auth token - would be passed in real implementation
-    const token = await AsyncStorage.getItem('auth_token');
+    const token = await SecureStore.getItemAsync('auth_token');
     if (!token) throw new Error('Not authenticated');
     
     switch (op.type) {
@@ -190,7 +187,7 @@ class SyncManager {
   }
 
   private async processDraftOperation(op: SyncOperation): Promise<void> {
-    const token = await AsyncStorage.getItem('auth_token');
+    const token = await SecureStore.getItemAsync('auth_token');
     if (!token) throw new Error('Not authenticated');
     
     // Sync draft to server
@@ -207,7 +204,7 @@ class SyncManager {
   }
 
   private async processSettingsOperation(op: SyncOperation): Promise<void> {
-    const token = await AsyncStorage.getItem('auth_token');
+    const token = await SecureStore.getItemAsync('auth_token');
     if (!token) throw new Error('Not authenticated');
     
     await apiClient.updateSettings(token, op.data);

@@ -1,5 +1,5 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import NetInfo from '@react-native-community/netinfo';
+import * as Network from 'expo-network';
+import { Storage } from './storage';
 
 // ============================================
 // Storage Keys
@@ -21,14 +21,18 @@ const KEYS = {
 class OfflineStorage {
   // Check if online
   async isOnline(): Promise<boolean> {
-    const state = await NetInfo.fetch();
-    return state.isConnected ?? false;
+    try {
+      const state = await Network.getNetworkStateAsync();
+      return state.isConnected ?? false;
+    } catch {
+      return true;
+    }
   }
 
   // Save data
   async save<T>(key: string, data: T): Promise<void> {
     try {
-      await AsyncStorage.setItem(key, JSON.stringify(data));
+      await Storage.setItem(key, JSON.stringify(data));
     } catch (error) {
       console.error(`Error saving ${key}:`, error);
     }
@@ -37,7 +41,7 @@ class OfflineStorage {
   // Load data
   async load<T>(key: string): Promise<T | null> {
     try {
-      const data = await AsyncStorage.getItem(key);
+      const data = await Storage.getItem(key);
       return data ? JSON.parse(data) : null;
     } catch (error) {
       console.error(`Error loading ${key}:`, error);
@@ -48,7 +52,7 @@ class OfflineStorage {
   // Remove data
   async remove(key: string): Promise<void> {
     try {
-      await AsyncStorage.removeItem(key);
+      await Storage.removeItem(key);
     } catch (error) {
       console.error(`Error removing ${key}:`, error);
     }
@@ -201,7 +205,7 @@ class OfflineStorage {
   // Clear All
   // ============================================
   async clearAll(): Promise<void> {
-    await AsyncStorage.multiRemove(Object.values(KEYS));
+    await Storage.multiRemove(Object.values(KEYS));
   }
 }
 
