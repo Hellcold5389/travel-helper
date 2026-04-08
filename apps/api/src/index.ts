@@ -7,6 +7,7 @@ import cron from 'node-cron';
 import OpenAI from 'openai';
 
 dotenv.config();
+import * as auth from './auth';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -44,6 +45,16 @@ async function getOrCreateUser(telegramId: string, name?: string): Promise<strin
 app.use(helmet());
 app.use(cors());
 app.use(express.json());
+
+// Auth routes
+app.post('/api/auth/register', auth.register);
+app.post('/api/auth/login', auth.login);
+app.post('/api/auth/google', auth.googleAuth);
+app.post('/api/auth/apple', auth.appleAuth);
+app.post('/api/auth/refresh', auth.refreshToken);
+app.get('/api/user/profile', auth.getProfile);
+app.put('/api/user/settings', auth.updateSettings);
+
 
 // Health check
 app.get('/health', (req, res) => {
@@ -2983,7 +2994,20 @@ interface BudgetRequest {
   budgetLevel: 'low' | 'medium' | 'high';
   includeFlights?: boolean;
   flightOrigin?: string;
+  currency?: 'TWD' | 'HKD' | 'USD';
 }
+
+const EXCHANGE_RATES: Record<string, number> = {
+  TWD: 1,
+  HKD: 0.25,
+  USD: 0.03,
+};
+
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  TWD: 'NT$',
+  HKD: 'HK$',
+  USD: 'US$',
+};
 
 // Cost data by country (per person per day)
 const COST_DATA: Record<string, { low: number; medium: number; high: number; currency: string }> = {
@@ -3020,7 +3044,7 @@ const FLIGHT_COSTS: Record<string, { low: number; medium: number; high: number }
 
 app.post('/api/budget', async (req, res) => {
   try {
-    const { destination, countryCode, days, travelers, budgetLevel, includeFlights, flightOrigin } = req.body as BudgetRequest;
+    const { destination, countryCode, days, travelers, budgetLevel, includeFlights, flightOrigin, currency = 'TWD' } = req.body as BudgetRequest;
 
     if (!countryCode || !days || !travelers || !budgetLevel) {
       return res.status(400).json({
@@ -3029,20 +3053,21 @@ app.post('/api/budget', async (req, res) => {
       });
     }
 
-    const countryCosts = COST_DATA[countryCode] || COST_DATA['JP']; // Default to Japan
+    const countryCosts = COST_DATA[countryCode] || COST_DATA['JP'];
     const dailyCost = countryCosts[budgetLevel];
+    const rate = EXCHANGE_RATES[currency] || 1;
+    const symbol = CURRENCY_SYMBOLS[currency] || 'NT$';
 
-    // Calculate breakdown
-    const accommodation = Math.round(dailyCost * 0.35 * days);
-    const food = Math.round(dailyCost * 0.25 * days);
-    const transport = Math.round(dailyCost * 0.15 * days);
-    const activities = Math.round(dailyCost * 0.15 * days);
-    const shopping = Math.round(dailyCost * 0.10 * days);
+    const accommodation = Math.round(dailyCost * 0.35 * days * rate);
+    const food = Math.round(dailyCost * 0.25 * days * rate);
+    const transport = Math.round(dailyCost * 0.15 * days * rate);
+    const activities = Math.round(dailyCost * 0.15 * days * rate);
+    const shopping = Math.round(dailyCost * 0.10 * days * rate);
     
     let flightCost = 0;
     if (includeFlights) {
       const flightCosts = FLIGHT_COSTS[countryCode] || FLIGHT_COSTS['JP'];
-      flightCost = flightCosts[budgetLevel];
+      flightCost = Math.round(flightCosts[budgetLevel] * rate);
     }
 
     const totalPerPerson = accommodation + food + transport + activities + shopping + flightCost;
@@ -3056,7 +3081,8 @@ app.post('/api/budget', async (req, res) => {
         days,
         travelers,
         budgetLevel,
-        currency: 'TWD',
+        currency,
+        currencySymbol: symbol,
         breakdown: {
           accommodation: {
             label: '住宿',
@@ -3092,7 +3118,7 @@ app.post('/api/budget', async (req, res) => {
         totalPerPerson,
         grandTotal,
         tips: [
-          `建議預留 ${Math.round(grandTotal * 0.1)} 元（10%）作為緊急備用金`,
+          `建議預留 ${symbol} ${Math.round(grandTotal * 0.1).toLocaleString()} （10%）作為緊急備用金`,
           budgetLevel === 'low' ? '選擇青年旅館或民宿可節省住宿費用' : '',
           budgetLevel === 'low' ? '利用大眾運輸工具，購買交通券更划算' : '',
           budgetLevel === 'medium' ? '建議提前預訂熱門景點門票' : '',

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,10 +7,14 @@ import {
   TouchableOpacity,
   Switch,
   Alert,
+  Image,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { colors, countryFlags } from '../src/theme/colors';
+import { useRouter } from 'expo-router';
+import { colors } from '../src/theme/colors';
 import { Card, Button } from '../src/components/ui';
+import { useAuth } from '../src/contexts/AuthContext';
 
 // Nationality options
 const NATIONALITIES = [
@@ -34,25 +38,141 @@ const CURRENCIES = [
 ];
 
 export default function SettingsScreen() {
-  // Settings state (would come from API in production)
-  const [nationality, setNationality] = useState('TW');
-  const [currency, setCurrency] = useState('TWD');
-  const [language, setLanguage] = useState('zh');
-  const [visaExpiry, setVisaExpiry] = useState(true);
-  const [policyChanges, setPolicyChanges] = useState(true);
-  const [tripReminders, setTripReminders] = useState(true);
+  const { user, isAuthenticated, isLoading, logout, updateProfile, isOffline } = useAuth();
+  const router = useRouter();
+  
+  // Local state for settings
+  const [nationality, setNationality] = useState(user?.nationality || 'TW');
+  const [currency, setCurrency] = useState(user?.preferences?.currency || 'TWD');
+  const [language, setLanguage] = useState(user?.preferences?.language || 'zh');
+  const [visaExpiry, setVisaExpiry] = useState(user?.preferences?.visaExpiry ?? true);
+  const [policyChanges, setPolicyChanges] = useState(user?.preferences?.policyChanges ?? true);
+  const [tripReminders, setTripReminders] = useState(user?.preferences?.tripReminders ?? true);
+  const [saving, setSaving] = useState(false);
   
   const [showNationalityPicker, setShowNationalityPicker] = useState(false);
   const [showCurrencyPicker, setShowCurrencyPicker] = useState(false);
 
-  const handleSave = () => {
-    // TODO: Save to API
-    Alert.alert('成功', '設定已儲存');
+  // Update local state when user data loads
+  useEffect(() => {
+    if (user) {
+      setNationality(user.nationality || 'TW');
+      setCurrency(user.preferences?.currency || 'TWD');
+      setLanguage(user.preferences?.language || 'zh');
+      setVisaExpiry(user.preferences?.visaExpiry ?? true);
+      setPolicyChanges(user.preferences?.policyChanges ?? true);
+      setTripReminders(user.preferences?.tripReminders ?? true);
+    }
+  }, [user]);
+
+  const handleSave = async () => {
+    if (!isAuthenticated) {
+      Alert.alert('請先登錄', '請登錄後再保存設定', [
+        { text: '取消', style: 'cancel' },
+        { text: '登錄', onPress: () => router.push('/login') },
+      ]);
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await updateProfile({
+        nationality,
+        preferences: {
+          language,
+          currency,
+          visaExpiry,
+          policyChanges,
+          tripReminders,
+        },
+      });
+      Alert.alert('成功', '設定已儲存');
+    } catch (error: any) {
+      Alert.alert('錯誤', error.message || '保存失敗');
+    } finally {
+      setSaving(false);
+    }
   };
+
+  const handleLogout = async () => {
+    Alert.alert(
+      '登出',
+      '確定要登出嗎？',
+      [
+        { text: '取消', style: 'cancel' },
+        {
+          text: '登出',
+          style: 'destructive',
+          onPress: async () => {
+            await logout();
+            router.replace('/');
+          },
+        },
+      ]
+    );
+  };
+
+  if (isLoading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={colors.primary} />
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+        {/* Offline Banner */}
+        {isOffline && (
+          <View style={styles.offlineBanner}>
+            <Text style={styles.offlineText}>⚠️ 離線模式 — 設定將在連線後同步</Text>
+          </View>
+        )}
+
+        {/* User Profile Card */}
+        <Card style={styles.card}>
+          {isAuthenticated ? (
+            <View style={styles.profileSection}>
+              <View style={styles.avatar}>
+                {user?.avatar ? (
+                  <Image source={{ uri: user.avatar }} style={styles.avatarImage} />
+                ) : (
+                  <Text style={styles.avatarText}>
+                    {user?.name?.charAt(0) || user?.email?.charAt(0) || '?'}
+                  </Text>
+                )}
+              </View>
+              <View style={styles.profileInfo}>
+                <Text style={styles.userName}>{user?.name || '用戶'}</Text>
+                <Text style={styles.userEmail}>{user?.email}</Text>
+              </View>
+              <TouchableOpacity style={styles.editButton} onPress={() => {}}>
+                <Text style={styles.editButtonText}>編輯</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.loginPrompt}>
+              <Text style={styles.loginPromptText}>登錄以保存您的設定</Text>
+              <Button
+                title="登錄 / 註冊"
+                onPress={() => router.push('/login')}
+                style={styles.loginButton}
+              />
+            </View>
+          )}
+        </Card>
+
+        {/* Passport Management Link */}
+        <Card style={styles.card}>
+          <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/passport')}>
+            <Text style={styles.menuText}>🛂 護照管理</Text>
+            <Text style={styles.menuArrow}>›</Text>
+          </TouchableOpacity>
+        </Card>
+
         {/* Nationality */}
         <Card style={styles.card}>
           <Text style={styles.cardTitle}>🛂 護照國籍</Text>
@@ -209,8 +329,19 @@ export default function SettingsScreen() {
 
         {/* Save Button */}
         <View style={styles.saveButton}>
-          <Button title="儲存設定" onPress={handleSave} />
+          <Button
+            title={saving ? '儲存中...' : '儲存設定'}
+            onPress={handleSave}
+            disabled={saving}
+          />
         </View>
+
+        {/* Logout Button */}
+        {isAuthenticated && (
+          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+            <Text style={styles.logoutText}>登出</Text>
+          </TouchableOpacity>
+        )}
 
         {/* Version */}
         <Text style={styles.version}>Travel Helper v0.1.0</Text>
@@ -228,6 +359,22 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 20,
   },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  offlineBanner: {
+    backgroundColor: '#FFF3CD',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+  offlineText: {
+    color: '#856404',
+    fontSize: 14,
+    textAlign: 'center',
+  },
   card: {
     marginBottom: 16,
   },
@@ -241,6 +388,79 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.textSecondary,
     marginBottom: 12,
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+  },
+  menuText: {
+    fontSize: 16,
+    color: colors.textPrimary,
+  },
+  menuArrow: {
+    fontSize: 20,
+    color: colors.textMuted,
+  },
+  profileSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  avatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatarImage: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+  },
+  avatarText: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: colors.white,
+  },
+  profileInfo: {
+    flex: 1,
+    marginLeft: 16,
+  },
+  userName: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: colors.textPrimary,
+  },
+  userEmail: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  editButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: colors.gray100,
+  },
+  editButtonText: {
+    fontSize: 14,
+    color: colors.primary,
+    fontWeight: '500',
+  },
+  loginPrompt: {
+    alignItems: 'center',
+    paddingVertical: 16,
+  },
+  loginPromptText: {
+    fontSize: 16,
+    color: colors.textSecondary,
+    marginBottom: 12,
+  },
+  loginButton: {
+    minWidth: 150,
   },
   selectorButton: {
     flexDirection: 'row',
@@ -337,6 +557,14 @@ const styles = StyleSheet.create({
   saveButton: {
     marginTop: 8,
     marginBottom: 16,
+  },
+  logoutButton: {
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  logoutText: {
+    fontSize: 16,
+    color: '#FF3B30',
   },
   version: {
     fontSize: 12,
