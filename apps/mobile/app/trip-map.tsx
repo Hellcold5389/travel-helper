@@ -12,7 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../src/theme/colors';
 import { Button, Card, Badge, SectionHeader, Loading } from '../src/components/ui';
 import { TripMap, MapLegend, MapPlace } from '../src/components/Map';
-import type { Region } from 'react-native-maps';
+// Region type is handled by Map component
 
 const { width } = Dimensions.get('window');
 
